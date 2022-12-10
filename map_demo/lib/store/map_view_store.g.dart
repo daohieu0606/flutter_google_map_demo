@@ -54,12 +54,57 @@ mixin _$MapViewStore on _MapViewStore, Store {
     });
   }
 
+  final _$currentLocationAtom = Atom(name: '_MapViewStore.currentLocation');
+
+  @override
+  LatLng? get currentLocation {
+    _$currentLocationAtom.reportRead();
+    return super.currentLocation;
+  }
+
+  @override
+  set currentLocation(LatLng? value) {
+    _$currentLocationAtom.reportWrite(value, super.currentLocation, () {
+      super.currentLocation = value;
+    });
+  }
+
+  final _$cafeShopsAtom = Atom(name: '_MapViewStore.cafeShops');
+
+  @override
+  List<store_data.Store> get cafeShops {
+    _$cafeShopsAtom.reportRead();
+    return super.cafeShops;
+  }
+
+  @override
+  set cafeShops(List<store_data.Store> value) {
+    _$cafeShopsAtom.reportWrite(value, super.cafeShops, () {
+      super.cafeShops = value;
+    });
+  }
+
   final _$fetchRouteAsyncAction = AsyncAction('_MapViewStore.fetchRoute');
 
   @override
-  Future<dynamic> fetchRoute(LatLng start, LatLng end, Function onFinished) {
-    return _$fetchRouteAsyncAction
-        .run(() => super.fetchRoute(start, end, onFinished));
+  Future<dynamic> fetchRoute(LatLng start, LatLng end) {
+    return _$fetchRouteAsyncAction.run(() => super.fetchRoute(start, end));
+  }
+
+  final _$getCurrentLocationAsyncAction =
+      AsyncAction('_MapViewStore.getCurrentLocation');
+
+  @override
+  Future<dynamic> getCurrentLocation() {
+    return _$getCurrentLocationAsyncAction
+        .run(() => super.getCurrentLocation());
+  }
+
+  final _$loadCafeShopsAsyncAction = AsyncAction('_MapViewStore.loadCafeShops');
+
+  @override
+  Future<dynamic> loadCafeShops() {
+    return _$loadCafeShopsAsyncAction.run(() => super.loadCafeShops());
   }
 
   @override
@@ -67,7 +112,9 @@ mixin _$MapViewStore on _MapViewStore, Store {
     return '''
 routes: ${routes},
 currentRotate: ${currentRotate},
-isLoading: ${isLoading}
+isLoading: ${isLoading},
+currentLocation: ${currentLocation},
+cafeShops: ${cafeShops}
     ''';
   }
 }

@@ -1,8 +1,11 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_map/plugin_api.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_demo/service/geo_service.dart';
+import 'package:map_demo/utils/store_utils.dart';
 import 'package:mobx/mobx.dart';
+import 'package:map_demo/data/store.dart' as store_data;
 
 part 'map_view_store.g.dart';
 
@@ -19,20 +22,18 @@ abstract class _MapViewStore with Store {
   bool isLoading = false;
 
   @action
-  Future fetchRoute(LatLng start, LatLng end, Function onFinished) async {
+  Future fetchRoute(LatLng start, LatLng end) async {
     isLoading = true;
 
-    GeoService.getRoutes(start, end).then((value) {
-      routes = value ?? List.empty();
+    List<LatLng>? res = await GeoService.getRoutes(start, end);
 
-      isLoading = false;
+    routes = res ?? List.empty();
 
-      onFinished.call();
-    });
+    isLoading = false;
   }
 
   LatLngBounds? getBounds() {
-    if (routes == null || routes.length < 2) return null;
+    if (routes.length < 2) return null;
 
     double minLat = routes
         .reduce((value, element) =>
@@ -55,5 +56,26 @@ abstract class _MapViewStore with Store {
         .longitude;
 
     return LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+  }
+
+  //current device location
+  @observable
+  LatLng? currentLocation;
+
+  @action
+  Future getCurrentLocation() async {
+    Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high);
+
+    currentLocation = LatLng(position.latitude, position.longitude);
+  }
+
+  //store-------------------------------------------------
+  @observable
+  List<store_data.Store> cafeShops = List.empty();
+
+  @action
+  Future loadCafeShops() async {
+    cafeShops = StoreUtils.getCafeShops();
   }
 }

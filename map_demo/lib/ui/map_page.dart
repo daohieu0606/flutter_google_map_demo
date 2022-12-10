@@ -1,22 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_demo/constant/images_key.dart';
 import 'package:map_demo/data/place.dart';
+import 'package:map_demo/data/store.dart';
 import 'package:map_demo/store/map_view_store.dart';
 import 'package:map_demo/ui/search_place_view.dart';
-import 'package:map_demo/utils/view_utils.dart';
 import 'package:provider/provider.dart';
 
 import '../service/geo_service.dart';
 
 class MapPage extends StatefulWidget {
-  static const mapTitleServer =
-      'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoiZGFvaGlldTA2MDYiLCJhIjoiY2xiOTUxcHI4MHJkeTN2bzNzZXA0bDlociJ9.0RfCuyaCgZemzo0V4CwwAg';
-
   const MapPage({Key? key}) : super(key: key);
 
   @override
@@ -24,17 +21,9 @@ class MapPage extends StatefulWidget {
 }
 
 class _MapPageState extends State<MapPage> {
-  LatLng? currentLocation;
   final _mapController = MapController();
 
   //layers---------------------------------------------------
-  final _onlMapLayer = TileLayerOptions(
-    tileProvider: NetworkTileProvider(),
-    urlTemplate: MapPage.mapTitleServer,
-    maxZoom: 25,
-    // subdomains: ['0', '1', '2', '3'],
-  );
-
   final _userLocationLayer =
       MarkerLayerOptions(markers: List.empty(growable: true));
 
@@ -46,11 +35,13 @@ class _MapPageState extends State<MapPage> {
 
   double _rotation = 0.0;
 
+  final List<Marker> _popupCafeShopMarkers = List.empty(growable: true);
+
   @override
   void initState() {
     _searchView = SearchPlaceView(
       onPlaceSelected: (place) {
-        _drawRouteLines(place);
+        _getAndDrawRouteLines(place);
       },
     );
 
@@ -60,22 +51,62 @@ class _MapPageState extends State<MapPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    _mapViewStore.loadCafeShops();
+    super.didChangeDependencies();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         Provider<MapViewStore>(create: (context) => _mapViewStore),
       ],
       child: Scaffold(
-        body: Observer(builder: (context) {
-          return Stack(
-            children: [
-              _mapView(),
-              _searchView,
-              _loadingView(),
-            ],
-          );
-        }),
-        floatingActionButton: _btnMoveToUserLocation(),
+        body: Observer(
+          builder: (context) {
+            return Stack(
+              children: [
+                _mapView(),
+                _searchView,
+                _optionalBtns(),
+                _loadingView(),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  _optionalBtns() {
+    return Positioned(
+      bottom: 24,
+      right: 24,
+      child: Column(
+        children: [
+          _btnCompass(),
+          const SizedBox(height: 8),
+          _btnMoveToUserLocation()
+        ],
+      ),
+    );
+  }
+
+  Transform _btnCompass() {
+    return Transform.rotate(
+      angle: _rotation * 3.14 / 180,
+      child: FloatingActionButton(
+        onPressed: () {
+          _mapController.rotate(0);
+          setState(() {
+            _rotation = 0;
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Image.asset(ImagesKey.ic_compass),
+        ),
       ),
     );
   }
@@ -84,7 +115,7 @@ class _MapPageState extends State<MapPage> {
     return Visibility(
       visible: _mapViewStore.isLoading,
       child: Container(
-        color: Colors.black12.withOpacity(0.4),
+        color: Colors.black12.withOpacity(0.3),
         child: const Center(
           child: SizedBox(
             height: 50,
@@ -104,30 +135,21 @@ class _MapPageState extends State<MapPage> {
       mapController: _mapController,
       options: _mapOptions(),
       layers: [
-        _onlMapLayer,
+        _onlMapLayer(),
         _routeLayer(),
         _routeLayer2(),
         _userLocationLayer,
+        _cafeShopsLayer(),
+        _cafeShopePopupLayer(),
       ],
     );
   }
 
-  _mapOptions() {
-    return MapOptions(
-      center: LatLng(10.8231, 106.6297),
-      zoom: 24,
-      onTap: (position, latlng) {
-        _searchView.hide();
-      },
-      onPositionChanged: (position, _) {
-        try {
-          setState(() {
-            _rotation = _mapController.rotation;
-          });
-        } catch (e) {
-          //do nothin
-        }
-      },
+  _onlMapLayer() {
+    return TileLayerOptions(
+      tileProvider: NetworkTileProvider(),
+      urlTemplate: GeoService.mapTitleServer,
+      maxZoom: 25,
     );
   }
 
@@ -142,13 +164,44 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
+  _cafeShopsLayer() {
+    return MarkerLayerOptions(
+      markers: _mapViewStore.cafeShops
+          .map(
+            (e) => _cafeShopMarker(e),
+          )
+          .toList(),
+    );
+  }
+
+  _mapOptions() {
+    return MapOptions(
+      center: LatLng(10.8231, 106.6297),
+      zoom: 24,
+      onTap: (position, latlng) {
+        debugPrint('lat: ${latlng.latitude}, lng: ${latlng.longitude},');
+        _searchView.hide();
+        _removeAllCafeShopPopupMarkers();
+      },
+      onPositionChanged: (position, _) {
+        try {
+          setState(() {
+            _rotation = _mapController.rotation;
+          });
+        } catch (e) {
+          //do nothing
+        }
+      },
+    );
+  }
+
   _routeLayer2() {
     return MarkerLayerOptions(
       markers: _mapViewStore.routes
           .map(
             (e) => Marker(
-              height: 8,
-              width: 8,
+              height: 9,
+              width: 9,
               point: e,
               builder: (context) {
                 return SvgPicture.asset(ImagesKey.ic_coordinate_marker);
@@ -175,41 +228,45 @@ class _MapPageState extends State<MapPage> {
     );
   }
 
-  void _fetchCurrentLocation() async {
-    Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
-
-    currentLocation = LatLng(position.latitude, position.longitude);
-
-    _mapController.move(currentLocation!, 18);
-
-    _addUserMarker();
+  void _fetchCurrentLocation() {
+    _mapViewStore.getCurrentLocation().then((value) {
+      _mapController.move(_mapViewStore.currentLocation!, 18);
+      _addUserMarker();
+    });
   }
 
   _addUserMarker() {
-    _userLocationLayer.markers.add(
-      Marker(
-        point: currentLocation!,
-        builder: (context) {
-          return SvgPicture.asset(
-            ImagesKey.ic_current_location,
-          );
-        },
-      ),
-    );
+    _userLocationLayer.markers
+      ..clear()
+      ..add(
+        Marker(
+          point: _mapViewStore.currentLocation!,
+          builder: (context) {
+            return SvgPicture.asset(
+              ImagesKey.ic_current_location,
+            );
+          },
+        ),
+      );
   }
 
   void _moveToCurrentLocation() {
-    if (currentLocation == null) return;
+    if (_mapViewStore.currentLocation == null) return;
 
-    _mapController.move(currentLocation!, 18);
+    _mapController.move(_mapViewStore.currentLocation!, 18);
   }
 
-  void _drawRouteLines(Place place) {
-    _mapViewStore.fetchRoute(
-      currentLocation!,
-      LatLng(place.center![1], place.center![0]),
-      () {
+  void _getAndDrawRouteLines(Place place) {
+    _mapViewStore
+        .fetchRoute(
+      _mapViewStore.currentLocation!,
+      LatLng(
+        place.center![1],
+        place.center![0],
+      ),
+    )
+        .then(
+      (value) {
         _mapController.rotate(0);
 
         _userLocationLayer.markers.clear();
@@ -226,6 +283,28 @@ class _MapPageState extends State<MapPage> {
         );
       },
     );
+  }
+
+  void _drawRouteLineToCafeShop(Place place) {
+    _mapViewStore
+        .fetchRoute(
+      _mapViewStore.currentLocation!,
+      LatLng(place.center![1], place.center![0]),
+    )
+        .then((value) {
+      _mapController.rotate(0);
+
+      _userLocationLayer.markers.clear();
+
+      _addUserMarker();
+
+      _mapController.fitBounds(
+        _mapViewStore.getBounds()!,
+        options: const FitBoundsOptions(
+          padding: EdgeInsets.symmetric(horizontal: 40),
+        ),
+      );
+    });
   }
 
   _addDestinationMarker(LatLng latLng) {
@@ -248,5 +327,118 @@ class _MapPageState extends State<MapPage> {
         },
       ),
     );
+  }
+
+  Marker _cafeShopMarker(Store e) {
+    return Marker(
+      height: 80,
+      width: 44,
+      point: LatLng(e.lat!, e.lng!),
+      builder: (context) {
+        return Transform.rotate(
+          angle: -_rotation * 3.14 / 180,
+          child: GestureDetector(
+            onTap: () {
+              _showCafeShopPopupMarker(e);
+            },
+            child: Image.asset(
+              ImagesKey.ic_cafe_shop_marker,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  _cafeShopePopupLayer() {
+    return PopupMarkerLayerOptions(
+      markerRotateAlignment:
+          PopupMarkerLayerOptions.rotationAlignmentFor(AnchorAlign.center),
+      markers: _popupCafeShopMarkers,
+    );
+  }
+
+  Marker _cafeShopPopupMarker(Store e) {
+    return Marker(
+      width: 180,
+      height: 410,
+      point: LatLng(e.lat!, e.lng!),
+      builder: (context) {
+        return GestureDetector(
+          onTap: () {
+            _drawRouteLineToCafeShop(Place(center: [e.lng!, e.lat!]));
+            _removeAllCafeShopPopupMarkers();
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 230),
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Image.network(
+                    e.image!,
+                    width: 180,
+                    height: 82,
+                    fit: BoxFit.fill,
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          e.name!,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                          maxLines: 2,
+                        ),
+                        const SizedBox(
+                          height: 3,
+                        ),
+                        Text(
+                          e.address!,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w300,
+                            fontSize: 12,
+                          ),
+                          maxLines: 2,
+                        ),
+                        Text(
+                          e.openHours!,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCafeShopPopupMarker(Store e) {
+    setState(() {
+      _popupCafeShopMarkers.clear();
+      _popupCafeShopMarkers.add(_cafeShopPopupMarker(e));
+    });
+  }
+
+  void _removeAllCafeShopPopupMarkers() {
+    setState(() {
+      _popupCafeShopMarkers.clear();
+    });
   }
 }
