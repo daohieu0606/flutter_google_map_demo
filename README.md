@@ -1,5 +1,5 @@
 # flutter_google_map_demo
-Simple Map Application
+The simple app shows a map view consisting of near coffee shops of the current user's location, and the route path from the current user's location to a specific coffee shop
 - Integrated Google Map API
 - Implement Marker, Route,...
 - mobx, flutter_map,...
